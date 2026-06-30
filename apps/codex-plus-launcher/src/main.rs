@@ -35,7 +35,16 @@ impl Default for LauncherHooks {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let options = parse_launch_options(std::env::args().skip(1));
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let helper_only = args.iter().any(|arg| arg == "--helper-only");
+    let options = parse_launch_options(args.iter());
+    if helper_only {
+        let hooks = LauncherHooks::default();
+        hooks.start_helper(options.helper_port).await?;
+        std::future::pending::<()>().await;
+        hooks.shutdown_helper(options.helper_port).await;
+        return Ok(());
+    }
     let Some(_guard) = acquire_single_instance_guard(options.debug_port)? else {
         activate_existing_codex_app(&options).await?;
         return Ok(());
@@ -83,7 +92,7 @@ fn acquire_single_instance_guard_with_retry(
             .with_context(|| {
                 format!(
                     "failed to acquire launcher guard port {}",
-                    codex_plus_core::ports::LAUNCHER_GUARD_PORT
+                    codex_plus_core::ports::launcher_guard_port()
                 )
             })
             .map(Some),
@@ -93,7 +102,7 @@ fn acquire_single_instance_guard_with_retry(
 fn try_acquire_single_instance_guard() -> std::io::Result<codex_plus_core::ports::LoopbackPortGuard>
 {
     codex_plus_core::ports::acquire_resilient_loopback_port_guard(
-        codex_plus_core::ports::LAUNCHER_GUARD_PORT,
+        codex_plus_core::ports::launcher_guard_port(),
     )
 }
 
@@ -101,7 +110,7 @@ fn log_launcher_guard_fallback(fallback_lock_path: &Path) {
     let _ = codex_plus_core::diagnostic_log::append_diagnostic_log(
         "launcher.guard_fallback",
         json!({
-            "requested_guard_port": codex_plus_core::ports::LAUNCHER_GUARD_PORT,
+            "requested_guard_port": codex_plus_core::ports::launcher_guard_port(),
             "fallback_lock_path": fallback_lock_path
         }),
     );
@@ -129,7 +138,12 @@ async fn activate_existing_codex_app(options: &LaunchOptions) -> anyhow::Result<
     let settings = hooks.load_settings().await?;
     let app_dir = hooks.resolve_app_dir(options.app_dir.as_deref(), &settings)?;
     let launch_result = hooks
-        .launch_codex(&app_dir, options.debug_port, &settings.codex_extra_args)
+        .launch_codex(
+            &app_dir,
+            options.debug_port,
+            &settings,
+            &settings.codex_extra_args,
+        )
         .await;
     if settings.enhancements_enabled {
         hooks.start_helper(options.helper_port).await?;
@@ -180,7 +194,7 @@ fn log_launcher_already_running(debug_port: u16) {
     let _ = codex_plus_core::diagnostic_log::append_diagnostic_log(
         "launcher.already_running",
         json!({
-            "guard_port": codex_plus_core::ports::LAUNCHER_GUARD_PORT,
+            "guard_port": codex_plus_core::ports::launcher_guard_port(),
             "debug_port": debug_port
         }),
     );
@@ -290,6 +304,13 @@ impl LaunchHooks for LauncherHooks {
         self.core.ensure_computer_use_config(settings).await
     }
 
+    async fn ensure_plugin_marketplace_config(
+        &self,
+        settings: &codex_plus_core::settings::BackendSettings,
+    ) -> anyhow::Result<()> {
+        self.core.ensure_plugin_marketplace_config(settings).await
+    }
+
     async fn start_helper(&self, helper_port: u16) -> anyhow::Result<()> {
         self.core.start_helper(helper_port).await
     }
@@ -298,10 +319,11 @@ impl LaunchHooks for LauncherHooks {
         &self,
         app_dir: &Path,
         debug_port: u16,
+        settings: &codex_plus_core::settings::BackendSettings,
         extra_args: &[String],
     ) -> anyhow::Result<codex_plus_core::launcher::CodexLaunch> {
         self.core
-            .launch_codex(app_dir, debug_port, extra_args)
+            .launch_codex(app_dir, debug_port, settings, extra_args)
             .await
     }
 
@@ -724,14 +746,7 @@ fn open_url(url: &str) -> anyhow::Result<()> {
 }
 
 fn manager_exe_path() -> PathBuf {
-    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
-    let dir = exe.parent().unwrap_or_else(|| Path::new("."));
-    let suffix = if cfg!(windows) { ".exe" } else { "" };
-    dir.join(format!(
-        "{}{}",
-        codex_plus_core::install::MANAGER_BINARY,
-        suffix
-    ))
+    codex_plus_core::install::companion_binary_path(codex_plus_core::install::MANAGER_BINARY)
 }
 
 fn default_user_script_manager() -> UserScriptManager {
@@ -792,7 +807,7 @@ mod tests {
         let source = include_str!("main.rs");
 
         assert!(source.contains("acquire_single_instance_guard(options.debug_port)?"));
-        assert!(source.contains("LAUNCHER_GUARD_PORT"));
+        assert!(source.contains("launcher_guard_port"));
         assert!(source.contains("launcher.already_running"));
     }
 
@@ -802,6 +817,8 @@ mod tests {
 
         assert!(source.contains("async fn ensure_computer_use_config"));
         assert!(source.contains("self.core.ensure_computer_use_config(settings).await"));
+        assert!(source.contains("async fn ensure_plugin_marketplace_config"));
+        assert!(source.contains("self.core.ensure_plugin_marketplace_config(settings).await"));
         assert!(source.contains("async fn start_computer_use_guard_watchdog"));
         assert!(source.contains("self.core"));
         assert!(source.contains(".start_computer_use_guard_watchdog(settings)"));
