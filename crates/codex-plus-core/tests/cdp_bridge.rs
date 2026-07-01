@@ -142,6 +142,72 @@ fn injection_script_menu_exposes_marketplace_and_force_install_plugin_switches()
 }
 
 #[test]
+fn injection_script_menu_exposes_stepwise_switch_and_syncs_panel() {
+    let script = assets::injection_script(57321);
+
+    assert!(script.contains("stepwise: false"));
+    assert!(script.contains("stepwise: \"codexAppStepwiseEnabled\""));
+    assert!(script.contains("Stepwise"));
+    assert!(script.contains("data-codex-plus-setting=\"stepwise\""));
+    assert!(script.contains("function syncStepwisePanel"));
+    assert!(script.contains("window.__codexStepwisePanel?.syncSettings"));
+    assert!(script.contains("if (key === \"stepwise\") syncStepwisePanel(value)"));
+    assert!(script.contains("if (patch?.enabled === true)"));
+    assert!(script.contains("activateRuntime();"));
+}
+
+#[test]
+fn stepwise_direct_send_targets_main_chat_composer() {
+    let script = assets::stepwise_script();
+
+    assert!(script.contains("function elementCenter("));
+    assert!(script.contains("function horizontalOverlapRatio("));
+    assert!(script.contains("function ignoredComposerContainer("));
+    assert!(script.contains("function mainComposerCandidate("));
+    assert!(script.contains("mainComposerCandidate(candidates)"));
+    assert!(!script.contains("const target = candidates[candidates.length - 1];"));
+}
+
+#[test]
+fn stepwise_scan_does_not_require_composer_for_suggestions() {
+    let script = assets::stepwise_script();
+
+    assert!(!script.contains("if (!composerCandidates().length) return false;"));
+}
+
+#[test]
+fn stepwise_assistant_detection_accepts_two_action_buttons() {
+    let script = assets::stepwise_script();
+
+    assert!(script.contains("if (count >= 2) return current;"));
+    assert!(script.contains("if (count < 2) continue;"));
+    assert!(!script.contains("if (count >= 3) return current;"));
+    assert!(!script.contains("if (count < 3) continue;"));
+}
+
+#[test]
+fn injection_script_defers_backend_mapped_toggles_until_settings_load() {
+    let script = assets::injection_script(57321);
+
+    assert!(script.contains("const codexPlusBackendMappedSettings = new Set"));
+    assert!(script.contains("codexPlusBackendMappedSettings.has(key) && !codexPlusBackendSettingsLoaded"));
+    assert!(script.contains("button.dataset.pending = String(waitsForBackend)"));
+    assert!(script.contains("button.disabled = waitsForBackend || button.dataset.relayUnneeded === \"true\""));
+    assert!(script.contains("toggle.disabled || toggle.dataset.pending === \"true\""));
+}
+
+#[test]
+fn injection_script_ignores_stale_backend_settings_responses() {
+    let script = assets::injection_script(57321);
+
+    assert!(script.contains("let codexPlusBackendSettingsSeq = 0"));
+    assert!(script.contains("const seq = codexPlusBackendSettingsSeq"));
+    assert!(script.contains("if (seq !== codexPlusBackendSettingsSeq)"));
+    assert!(script.contains("const seq = ++codexPlusBackendSettingsSeq"));
+    assert!(script.contains("if (seq === codexPlusBackendSettingsSeq)"));
+}
+
+#[test]
 fn injection_script_skips_plugin_patch_work_in_relay_mode() {
     let script = assets::injection_script(57321);
 
