@@ -117,7 +117,7 @@ fn injection_script_times_out_backend_bridge_calls_and_falls_back_to_helper() {
 
     assert!(script.contains("bridgeWithBackendTimeout"));
     assert!(script.contains("backend_bridge_timeout"));
-    assert!(script.contains("/backend/repair"));
+    assert!(!script.contains("/backend/repair"));
     assert!(script.contains("backend_status_bridge_failed_http_fallback_ok"));
     assert!(script.contains("backend_status_bridge_and_http_failed"));
 }
@@ -130,13 +130,14 @@ fn injection_script_explains_plugin_patch_is_unneeded_in_relay_mode() {
 }
 
 #[test]
-fn injection_script_menu_exposes_marketplace_and_force_install_plugin_switches() {
+fn injection_script_menu_exposes_marketplace_plugin_switch_only() {
     let script = assets::injection_script(57321);
 
     assert!(script.contains("插件市场解锁"));
     assert!(script.contains("data-codex-plus-setting=\"pluginMarketplaceUnlock\""));
-    assert!(script.contains("特殊插件强制安装"));
-    assert!(script.contains("data-codex-plus-setting=\"forcePluginInstall\""));
+    assert!(!script.contains("特殊插件强制安装"));
+    assert!(!script.contains("data-codex-plus-setting=\"forcePluginInstall\""));
+    assert!(!script.contains("forcePluginInstall"));
     assert!(!script.contains("强制解锁入口"));
     assert!(!script.contains("data-codex-plus-setting=\"pluginEntryUnlock\""));
 }
@@ -190,9 +191,14 @@ fn injection_script_defers_backend_mapped_toggles_until_settings_load() {
     let script = assets::injection_script(57321);
 
     assert!(script.contains("const codexPlusBackendMappedSettings = new Set"));
-    assert!(script.contains("codexPlusBackendMappedSettings.has(key) && !codexPlusBackendSettingsLoaded"));
+    assert!(
+        script
+            .contains("codexPlusBackendMappedSettings.has(key) && !codexPlusBackendSettingsLoaded")
+    );
     assert!(script.contains("button.dataset.pending = String(waitsForBackend)"));
-    assert!(script.contains("button.disabled = waitsForBackend || button.dataset.relayUnneeded === \"true\""));
+    assert!(script.contains(
+        "button.disabled = waitsForBackend || button.dataset.relayUnneeded === \"true\""
+    ));
     assert!(script.contains("toggle.disabled || toggle.dataset.pending === \"true\""));
 }
 
@@ -215,6 +221,15 @@ fn injection_script_skips_plugin_patch_work_in_relay_mode() {
     assert!(script.contains("!codexPlusBackendSettingsLoaded"));
     assert!(script.contains("if (pluginPatchDisabledInRelayMode()) return"));
     assert!(script.contains("clearPluginPatchArtifacts()"));
+}
+
+#[test]
+fn injection_script_disables_plugin_auto_expand_in_relay_mode() {
+    let script = assets::injection_script(57321);
+
+    assert!(script.contains("settings.pluginAutoExpand = false"));
+    assert!(script.contains("if (pluginPatchDisabledInRelayMode()) return"));
+    assert!(script.contains("if (!codexPlusSettings().pluginAutoExpand) return"));
 }
 
 #[test]
@@ -283,16 +298,16 @@ fn injection_script_localizes_codex_menu_commands() {
 }
 
 #[test]
-fn injection_script_unlocks_nested_disabled_plugin_install_buttons() {
+fn injection_script_does_not_unlock_disabled_plugin_install_buttons() {
     let script = assets::injection_script(57321);
 
     assert!(script.contains("button[aria-disabled=\"true\"]"));
     assert!(script.contains("[role=\"button\"][data-disabled]"));
-    assert!(script.contains("installButtonUnlockNodes"));
-    assert!(script.contains("patchReactDisabledProps"));
-    assert!(script.contains("props[\"data-disabled\"] = undefined"));
-    assert!(script.contains("button.querySelectorAll?.(\"button, [role='button'], [disabled], [aria-disabled], [data-disabled]"));
-    assert!(script.contains("button.dataset.codexForceInstallUnlocked"));
+    assert!(!script.contains("installButtonUnlockNodes"));
+    assert!(!script.contains("patchReactDisabledProps"));
+    assert!(!script.contains("props[\"data-disabled\"] = undefined"));
+    assert!(!script.contains("button.querySelectorAll?.(\"button, [role='button'], [disabled], [aria-disabled], [data-disabled]"));
+    assert!(!script.contains("button.dataset.codexForceInstallUnlocked"));
 }
 
 #[test]
@@ -350,6 +365,8 @@ fn injection_script_expands_api_key_plugin_marketplace_requests() {
     assert!(script.contains("__CODEX_PLUS_PLUGIN_MARKETPLACES__"));
     assert!(script.contains("mergeLocalPluginMarketplaces(result)"));
     assert!(script.contains("plugin_marketplace_local_merged"));
+    assert!(script.contains("cloned.marketplaceName = marketplaceName"));
+    assert!(script.contains("cloned.marketplacePath = marketplaceName"));
     assert!(script.contains("restorePluginMarketplaceName"));
     assert!(script.contains(
         "next.remoteMarketplaceName = restorePluginMarketplaceName(next.remoteMarketplaceName)"
@@ -402,13 +419,13 @@ fn injection_script_logs_marketplace_grouping_diagnostics() {
 }
 
 #[test]
-fn injection_script_keeps_force_install_unlock_visual_state_sticky() {
+fn injection_script_omits_force_install_unlock_loop() {
     let script = assets::injection_script(57321);
 
-    assert!(script.contains("codex-force-install-unlocked"));
-    assert!(script.contains("codexForcePluginInstallRefreshIntervalMs"));
-    assert!(script.contains("refreshForcePluginInstallUnlockLoop"));
-    assert!(script.contains("setInterval(() => {"));
+    assert!(!script.contains("codex-force-install-unlocked"));
+    assert!(!script.contains("codexForcePluginInstallRefreshIntervalMs"));
+    assert!(!script.contains("refreshForcePluginInstallUnlockLoop"));
+    assert!(!script.contains("__codexForcePluginInstallRefreshTimer"));
 }
 
 #[test]
@@ -616,6 +633,32 @@ fn injection_script_prompts_for_markdown_export_path_when_supported() {
     assert!(script.contains("await writable.write(markdown)"));
     assert!(script.contains("status: \"cancelled\""));
     assert!(script.contains("导出已取消"));
+}
+
+#[test]
+fn injection_script_discovers_vscode_api_asset_without_hardcoded_hash() {
+    let script = assets::injection_script(57321);
+
+    assert!(script.contains("loadCodexAppModule(\"vscode-api-\""));
+    assert!(script.contains("codexAppAssetUrlFromScriptText"));
+    assert!(script.contains("fetch(src"));
+    assert!(!script.contains("vscode-api-Dc9pX2Bc.js"));
+    assert!(!script.contains("import(\"./assets/vscode-api-"));
+}
+
+#[test]
+fn injection_script_clears_project_state_when_moving_to_projectless() {
+    let script = assets::injection_script(57321);
+
+    assert!(script.contains("async function clearThreadWorkspaceHints"));
+    assert!(script.contains("async function clearThreadWritableRoots"));
+    assert!(script.contains("async function clearThreadProjectlessOutputDirectories"));
+    assert!(script.contains("thread-workspace-root-hints"));
+    assert!(script.contains("thread-writable-roots"));
+    assert!(script.contains("thread-projectless-output-directories"));
+    assert!(script.contains("await clearThreadWorkspaceHints(ref)"));
+    assert!(script.contains("await clearThreadWritableRoots(ref)"));
+    assert!(script.contains("await clearThreadProjectlessOutputDirectories(ref)"));
 }
 
 #[test]
@@ -878,6 +921,19 @@ fn manager_ui_exposes_pure_api_relay_mode_button() {
     assert!(source.contains("纯 API"));
     assert!(source.contains("apply_pure_api_injection"));
     assert!(commands.contains("commands::apply_pure_api_injection"));
+}
+
+#[test]
+fn manager_ui_disables_plugin_auto_expand_in_compatible_mode() {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("core crate should live under crates/codex-plus-core");
+    let source = std::fs::read_to_string(repo.join("apps/codex-plus-manager/src/App.tsx")).unwrap();
+
+    assert!(source.contains(
+        "checked={form.codexAppPluginAutoExpand} disabled={!masterEnabled || !patchMode}"
+    ));
 }
 
 #[test]

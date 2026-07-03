@@ -447,6 +447,9 @@ pub fn apply_relay_config_file_to_home(
     home: &Path,
     config_contents: &str,
 ) -> anyhow::Result<RelayApplyResult> {
+    let config_contents = config_contents
+        .strip_prefix('\u{feff}')
+        .unwrap_or(config_contents);
     if config_contents.trim().is_empty() {
         anyhow::bail!("config.toml 内容不能为空");
     }
@@ -1066,11 +1069,22 @@ fn write_codex_live_atomic(
             };
             Some(guarded)
         }
-        Some(config_text) => Some(config_text.to_string()),
+        Some(config_text) => Some(normalize_config_text_for_write(config_text)),
         None => None,
     };
     #[cfg(windows)]
     let config_text = guarded_config_text.as_deref();
+
+    let config_text = match config_text {
+        Some(config_text) => Some(
+            crate::plugin_marketplace::preserve_openai_curated_remote_marketplace_config(
+                home,
+                config_text,
+            )?,
+        ),
+        None => None,
+    };
+    let config_text = config_text.as_deref();
 
     if let Some(config_text) = config_text {
         validate_toml_config(config_text, &config_path)?;
@@ -1132,12 +1146,13 @@ fn provider_table_exists(doc: &DocumentMut, provider_id: &str) -> bool {
 }
 
 fn parse_toml_document(contents: &str) -> anyhow::Result<DocumentMut> {
+    let contents = contents.trim_start_matches('\u{feff}');
     if contents.trim().is_empty() {
         Ok(DocumentMut::new())
     } else {
         contents
             .parse::<DocumentMut>()
-            .with_context(|| "config.toml TOML 解析失败")
+            .map_err(|error| anyhow::anyhow!("config.toml TOML 解析失败：{error}"))
     }
 }
 
@@ -1320,6 +1335,7 @@ fn common_config_anchors(common_config: &str) -> CommonConfigAnchors {
 }
 
 fn validate_toml_config(config_text: &str, path: &Path) -> anyhow::Result<()> {
+    let config_text = config_text.trim_start_matches('\u{feff}');
     if config_text.trim().is_empty() {
         return Ok(());
     }
@@ -1327,6 +1343,10 @@ fn validate_toml_config(config_text: &str, path: &Path) -> anyhow::Result<()> {
         .parse::<toml::Table>()
         .with_context(|| format!("{} 不是有效 TOML", path.display()))?;
     Ok(())
+}
+
+fn normalize_config_text_for_write(config_text: &str) -> String {
+    config_text.trim_start_matches('\u{feff}').to_string()
 }
 
 fn validate_auth_json(auth_bytes: &[u8], path: &Path) -> anyhow::Result<()> {
@@ -1815,7 +1835,7 @@ pub fn relay_profile_model(profile: &RelayProfile) -> String {
         .unwrap_or_else(|| profile.model.trim().to_string())
 }
 
-fn relay_profile_base_url(profile: &RelayProfile) -> String {
+pub fn relay_profile_base_url(profile: &RelayProfile) -> String {
     if profile.relay_mode == crate::settings::RelayMode::Aggregate {
         return crate::protocol_proxy::local_responses_proxy_base_url(
             crate::protocol_proxy::DEFAULT_PROTOCOL_PROXY_PORT,
@@ -1851,7 +1871,7 @@ fn relay_profile_base_url(profile: &RelayProfile) -> String {
     }
 }
 
-fn relay_profile_api_key(profile: &RelayProfile) -> String {
+pub fn relay_profile_api_key(profile: &RelayProfile) -> String {
     if profile.relay_mode == crate::settings::RelayMode::Aggregate {
         return "codex-plus-aggregate".to_string();
     }

@@ -343,7 +343,6 @@
   const codexThreadScrollRouteHooksVersion = "dispatcher:2";
   const codexThreadScrollListenerVersion = "4";
   const codexThreadScrollUserIntentVersion = "dispatcher:2";
-  const codexForcePluginInstallRefreshIntervalMs = 1000;
   const codexPlusImageOverlayId = "codex-plus-image-overlay";
   window.__codexProjectMoveRuntimeId = (window.__codexProjectMoveRuntimeId || 0) + 1;
   const codexProjectMoveRuntimeId = window.__codexProjectMoveRuntimeId;
@@ -569,12 +568,6 @@
         border-color: #93c5fd;
         background: #dbeafe;
         color: #1d4ed8;
-      }
-      .codex-force-install-unlocked {
-        border-color: #ef4444 !important;
-        background: #fee2e2 !important;
-        color: #991b1b !important;
-        opacity: 1 !important;
       }
       .${zedRemoteButtonClass} {
         border: 1px solid #10a37f;
@@ -1117,8 +1110,6 @@
       .codex-plus-backend-label { color: #a1a1aa; font-size: 12px; }
       .codex-plus-backend-label[data-status="ok"] { color: #34d399; }
       .codex-plus-backend-label[data-status="failed"] { color: #f87171; }
-      .codex-plus-backend-repair { border: 1px solid rgba(255,255,255,.18); border-radius: 7px; background: #3f3f46; color: #f3f4f6; font: 12px system-ui, sans-serif; padding: 6px 8px; }
-      .codex-plus-backend-repair[hidden] { display: none; }
       .codex-plus-user-script-warning { margin-top: 4px; color: #fbbf24; font-size: 12px; }
       .codex-plus-user-script-dirs { margin-top: 6px; color: #a1a1aa; font-size: 11px; line-height: 1.4; word-break: break-all; }
       .codex-plus-user-script-list { margin-top: 8px; display: grid; gap: 6px; }
@@ -1134,6 +1125,7 @@
       .codex-plus-ad-section-title { color: #f8fafc; font-size: 15px; margin: 0; }
       .codex-plus-ad-list { display: grid; gap: 14px; }
       .codex-plus-ad-card { border: 1px solid rgba(96,165,250,.26); border-radius: 16px; background: linear-gradient(135deg, rgba(37,99,235,.18), rgba(255,255,255,.05)); box-shadow: 0 14px 36px rgba(0,0,0,.22); }
+      .codex-plus-ad-image { display: block; width: calc(100% - 28px); aspect-ratio: 16 / 5; margin: 14px 14px 0; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; background: #080808; object-fit: cover; }
       .codex-plus-ad-content { padding: 14px; }
       .codex-plus-ad-title { margin: 0; color: #f8fafc; font-size: 17px; line-height: 1.35; }
       .codex-plus-ad-description { margin: 6px 0 10px; color: #dbeafe; font-size: 13px; line-height: 1.55; }
@@ -1150,12 +1142,11 @@
   }
 
   function defaultCodexPlusSettings() {
-    return { pluginMarketplaceUnlock: true, forcePluginInstall: true, pluginAutoExpand: true, modelWhitelistUnlock: true, sessionDelete: true, markdownExport: true, pasteFix: false, projectMove: true, threadIdBadge: false, conversationView: false, conversationViewMaxWidth: conversationViewDefaultWidth, threadScrollRestore: true, zedRemoteOpen: true, upstreamWorktreeCreate: true, nativeMenuPlacement: true, serviceTierControls: false, stepwise: false };
+    return { pluginMarketplaceUnlock: true, pluginAutoExpand: true, modelWhitelistUnlock: true, sessionDelete: true, markdownExport: true, pasteFix: false, projectMove: true, threadIdBadge: false, conversationView: false, conversationViewMaxWidth: conversationViewDefaultWidth, threadScrollRestore: true, zedRemoteOpen: true, upstreamWorktreeCreate: true, nativeMenuPlacement: true, serviceTierControls: false, stepwise: false };
   }
 
   const codexPlusBackendSettingMap = {
     pluginMarketplaceUnlock: "codexAppPluginMarketplaceUnlock",
-    forcePluginInstall: "codexAppForcePluginInstall",
     pluginAutoExpand: "codexAppPluginAutoExpand",
     modelWhitelistUnlock: "codexAppModelWhitelistUnlock",
     sessionDelete: "codexAppSessionDelete",
@@ -1188,7 +1179,6 @@
     if (codexPlusBackendSettings.enhancementsEnabled === false) {
       return {
         pluginMarketplaceUnlock: false,
-        forcePluginInstall: false,
         pluginAutoExpand: false,
         modelWhitelistUnlock: false,
         sessionDelete: false,
@@ -1210,14 +1200,14 @@
       const settings = { ...defaultCodexPlusSettings(), ...JSON.parse(localStorage.getItem(codexPlusSettingsKey) || "{}"), ...backendCodexPlusSettings() };
       if (relayPatchDisabled) {
         settings.pluginMarketplaceUnlock = false;
-        settings.forcePluginInstall = false;
+        settings.pluginAutoExpand = false;
       }
       return settings;
     } catch {
       const settings = { ...defaultCodexPlusSettings(), ...backendCodexPlusSettings() };
       if (relayPatchDisabled) {
         settings.pluginMarketplaceUnlock = false;
-        settings.forcePluginInstall = false;
+        settings.pluginAutoExpand = false;
       }
       return settings;
     }
@@ -1412,10 +1402,26 @@
     return urls.find((url) => url.includes("/assets/") && url.includes(namePart) && url.split("?")[0].endsWith(".js")) || "";
   }
 
+  async function codexAppAssetUrlFromScriptText(namePart) {
+    const scripts = Array.from(document.scripts || []).map((script) => script.src).filter(Boolean);
+    for (const src of scripts) {
+      if (!src.includes("/assets/") || !src.split("?")[0].endsWith(".js")) continue;
+      try {
+        const text = await fetch(src).then((response) => response.ok ? response.text() : "");
+        const escaped = namePart.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const match = text.match(new RegExp(`["'](\\./assets/${escaped}[^"']+\\.js)["']`));
+        if (!match) continue;
+        return new URL(match[1], src).href;
+      } catch {
+      }
+    }
+    return "";
+  }
+
   async function loadCodexAppModule(namePart) {
     if (!codexServiceTierModulePromises.has(namePart)) {
       const promise = Promise.resolve().then(async () => {
-        const url = codexAppAssetUrl(namePart);
+        const url = codexAppAssetUrl(namePart) || await codexAppAssetUrlFromScriptText(namePart);
         if (!url) throw new Error(`未找到 Codex App asset: ${namePart}`);
         return await import(url);
       }).catch((error) => {
@@ -2189,8 +2195,6 @@
       indicator.dataset.status = status;
       indicator.title = status === "ok" ? "后端已连接" : status === "checking" ? "正在检查后端" : "未连接";
     });
-    const repair = document.querySelector("[data-codex-backend-repair]");
-    if (repair) repair.hidden = status === "ok" || status === "checking";
     refreshCodexServiceTierControls();
   }
 
@@ -2212,17 +2216,6 @@
         message: nextStatus?.message || "",
         timeout: !!nextStatus?.timeout,
       });
-    }
-    renderBackendStatus();
-  }
-
-  async function repairBackend() {
-    codexPlusBackendStatus = { status: "checking", message: "正在修复后端…" };
-    renderBackendStatus();
-    try {
-      codexPlusBackendStatus = await postJson("/backend/repair", {});
-    } catch (error) {
-      codexPlusBackendStatus = { status: "failed", message: "后端修复失败" };
     }
     renderBackendStatus();
   }
@@ -2297,6 +2290,7 @@
       title: String(ad.title),
       description: String(ad.description),
       url: String(ad.url),
+      image: ad.image ? String(ad.image) : "",
       expires_at: ad.expires_at ? String(ad.expires_at) : "",
       highlights: Array.isArray(ad.highlights) ? ad.highlights.map((item) => String(item)).filter(Boolean) : [],
     }));
@@ -2307,6 +2301,7 @@
     if (!ads.length) return `<div class="codex-plus-ad-empty">${escapeHtml(emptyText)}</div>`;
     return ads.map((ad) => `
       <article class="codex-plus-ad-card">
+        ${ad.image ? `<img class="codex-plus-ad-image" src="${escapeHtml(ad.image)}" alt="">` : ""}
         <div class="codex-plus-ad-content">
           <h3 class="codex-plus-ad-title">${escapeHtml(ad.title)}</h3>
           <p class="codex-plus-ad-description">${escapeHtml(ad.description)}</p>
@@ -2362,7 +2357,9 @@
 
   async function fetchCodexPlusAds() {
     try {
-      codexPlusAds = normalizeCodexPlusAds(await directFetchCodexPlusAds());
+      const localPayload = await postJson(codexPlusAdsUrl, {});
+      codexPlusAds = normalizeCodexPlusAds(localPayload?.ads ? localPayload : localPayload?.payload);
+      if (!codexPlusAds.length) codexPlusAds = normalizeCodexPlusAds(await directFetchCodexPlusAds());
     } catch (error) {
       sendCodexPlusDiagnostic("ads_fetch_failed", {
         errorName: error?.name || "",
@@ -2409,10 +2406,9 @@
         <div class="codex-plus-modal-body">
           <div class="codex-plus-panel" data-codex-plus-panel="home">
             <div class="codex-plus-row">
-              <div><div class="codex-plus-row-title">后端连接</div><div class="codex-plus-row-description">每 5 秒检查一次 launcher 后端状态；断开时可尝试修复后端运行。</div></div>
+              <div><div class="codex-plus-row-title">后端连接</div><div class="codex-plus-row-description">每 5 秒检查一次 launcher 后端状态。</div></div>
               <div class="codex-plus-backend-status">
                 <div class="codex-plus-backend-label" data-codex-backend-status="true" data-status="checking">正在检查后端…</div>
-                <button type="button" class="codex-plus-backend-repair" data-codex-backend-repair="true" hidden>修复后端运行</button>
               </div>
             </div>
             <div class="codex-plus-row">
@@ -2422,10 +2418,6 @@
             <div class="codex-plus-row">
               <div><div class="codex-plus-row-title">插件市场解锁</div><div class="codex-plus-row-description">${codexPlusBackendSettings.launchMode === "relay" ? "兼容增强模式下无需开启；ChatGPT 登录态会保留官方插件市场。" : "API Key 模式下扩展插件市场请求，尽量显示完整插件列表。"}</div></div>
               <button type="button" class="codex-plus-toggle" data-codex-plus-setting="pluginMarketplaceUnlock" ${codexPlusBackendSettings.launchMode === "relay" ? 'disabled data-relay-unneeded="true"' : ""}><span></span></button>
-            </div>
-            <div class="codex-plus-row">
-              <div><div class="codex-plus-row-title">特殊插件强制安装</div><div class="codex-plus-row-description">${codexPlusBackendSettings.launchMode === "relay" ? "兼容增强模式下无需开启；不会改插件安装入口。" : "解除 App unavailable / 应用不可用导致的前端安装禁用。"}</div></div>
-              <button type="button" class="codex-plus-toggle" data-codex-plus-setting="forcePluginInstall" ${codexPlusBackendSettings.launchMode === "relay" ? 'disabled data-relay-unneeded="true"' : ""}><span></span></button>
             </div>
             <div class="codex-plus-row">
               <div><div class="codex-plus-row-title">模型白名单解锁</div><div class="codex-plus-row-description">从环境变量和 Codex config.toml 中的中转站 /v1/models 拉取模型，并补进模型选择列表。</div></div>
@@ -2504,7 +2496,7 @@
               <button type="button" class="codex-plus-toggle" data-codex-backend-setting="providerSyncEnabled"><span></span></button>
             </div>
             <div class="codex-plus-row">
-              <div><div class="codex-plus-row-title">页面增强模式</div><div class="codex-plus-row-description">${codexPlusBackendSettings.launchMode === "relay" ? "兼容增强：保留会话删除、导出、项目移动和用户脚本，仅关闭插件市场相关增强。" : "完整增强：加载插件市场、强制安装、项目路径移动等全部页面能力。"}</div></div>
+              <div><div class="codex-plus-row-title">页面增强模式</div><div class="codex-plus-row-description">${codexPlusBackendSettings.launchMode === "relay" ? "兼容增强：保留会话删除、导出、项目移动和用户脚本，仅关闭插件市场相关增强。" : "完整增强：加载插件市场、项目路径移动等全部页面能力。"}</div></div>
               <button type="button" class="codex-plus-action-button" data-codex-open-manager="true">打开管理工具</button>
             </div>
             <div class="codex-plus-row">
@@ -2613,10 +2605,6 @@
       }
       if (target?.closest("[data-codex-plus-telegram]")) {
         window.open("https://t.me/CodexPlusPlus", "_blank");
-        return;
-      }
-      if (target?.closest("[data-codex-backend-repair]")) {
-        repairBackend();
         return;
       }
       const issueButton = target?.closest("[data-codex-plus-issue]");
@@ -2963,6 +2951,8 @@
     if (!name) return null;
     if (!cloned.name) cloned.name = name;
     if (!cloned.id) cloned.id = `${name}@${marketplaceName}`;
+    if (!cloned.marketplaceName) cloned.marketplaceName = marketplaceName;
+    if (!cloned.marketplacePath) cloned.marketplacePath = marketplaceName;
     if (!cloned.interface || typeof cloned.interface !== "object") cloned.interface = {};
     if (!cloned.interface.displayName) cloned.interface.displayName = name;
     if (!Array.isArray(cloned.keywords)) cloned.keywords = [];
@@ -3541,129 +3531,7 @@
     return !codexPlusBackendSettingsLoaded || codexPlusBackendSettings.launchMode === "relay";
   }
 
-  function pluginInstallCandidates() {
-    const nodes = Array.from(document.querySelectorAll(selectors.disabledInstallButton));
-    return Array.from(new Set(nodes.map((node) => node.closest?.("button, [role='button']") || node)));
-  }
-
-  function installButtonLabel(element) {
-    return (element.textContent || "").trim();
-  }
-
-  function isInstallButtonLabel(text) {
-    return /^安装\s*/.test(text) || /^Install\s*/i.test(text) || text === "强制安装";
-  }
-
-  function patchReactDisabledProps(element) {
-    Object.keys(element)
-      .filter((key) => key.startsWith("__reactProps"))
-      .forEach((key) => {
-        const props = element[key];
-        if (!props || typeof props !== "object") return;
-        props.disabled = false;
-        props["aria-disabled"] = false;
-        props["data-disabled"] = undefined;
-      });
-  }
-
-  function clearDisabledState(element) {
-    if (!(element instanceof HTMLElement)) return;
-    if ("disabled" in element) element.disabled = false;
-    element.removeAttribute("disabled");
-    element.removeAttribute("aria-disabled");
-    element.removeAttribute("data-disabled");
-    element.removeAttribute("inert");
-    element.classList.remove("disabled", "opacity-50", "cursor-not-allowed", "pointer-events-none");
-    element.classList.add("codex-force-install-unlocked");
-    element.style.pointerEvents = "auto";
-    element.style.opacity = "";
-    element.style.cursor = "pointer";
-    element.tabIndex = 0;
-    patchReactDisabledProps(element);
-  }
-
-  function installButtonUnlockNodes(button) {
-    const nodes = [button];
-    button.querySelectorAll?.("button, [role='button'], [disabled], [aria-disabled], [data-disabled], .cursor-not-allowed, .pointer-events-none")
-      .forEach((node) => nodes.push(node));
-    let parent = button.parentElement;
-    for (let depth = 0; parent && depth < 3; depth += 1, parent = parent.parentElement) {
-      if (parent.matches?.("button, [role='button'], [disabled], [aria-disabled], [data-disabled], .cursor-not-allowed, .pointer-events-none")) {
-        nodes.push(parent);
-      }
-    }
-    return Array.from(new Set(nodes));
-  }
-
-  function installForcedInstallGuard(button) {
-    if (button.dataset.codexForceInstallUnlocked === "true") return;
-    button.dataset.codexForceInstallUnlocked = "true";
-    const keepUnlocked = () => installButtonUnlockNodes(button).forEach(clearDisabledState);
-    ["pointerdown", "mousedown", "mouseup", "click", "focus"].forEach((eventName) => {
-      button.addEventListener(eventName, keepUnlocked, true);
-    });
-  }
-
-  function unblockButtonElement(button) {
-    installButtonUnlockNodes(button).forEach(clearDisabledState);
-    installForcedInstallGuard(button);
-  }
-
-  function labelForcedInstallButton(button) {
-    const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
-    let textNode = null;
-    while (!textNode && walker.nextNode()) {
-      const node = walker.currentNode;
-      if (isInstallButtonLabel((node.nodeValue || "").trim())) textNode = node;
-    }
-    if (textNode) {
-      textNode.nodeValue = "强制安装";
-    }
-  }
-
-  function clearForcedInstallButtonLabel(button) {
-    const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
-    let textNode = null;
-    while (!textNode && walker.nextNode()) {
-      const node = walker.currentNode;
-      if ((node.nodeValue || "").trim() === "强制安装") textNode = node;
-    }
-    if (textNode) {
-      textNode.nodeValue = "安装";
-    }
-  }
-
   function clearPluginPatchArtifacts() {
-    pluginInstallCandidates().forEach(clearForcedInstallButtonLabel);
-  }
-
-  function unblockPluginInstallButtons() {
-    if (pluginPatchDisabledInRelayMode()) return;
-    if (!codexPlusSettings().forcePluginInstall) return;
-    pluginInstallCandidates().forEach((button) => {
-      const text = installButtonLabel(button);
-      if (!isInstallButtonLabel(text)) return;
-      unblockButtonElement(button);
-      labelForcedInstallButton(button);
-    });
-  }
-
-  function refreshForcePluginInstallUnlockLoop() {
-    const shouldRun = !pluginPatchDisabledInRelayMode() && codexPlusSettings().forcePluginInstall;
-    if (!shouldRun) {
-      clearInterval(window.__codexForcePluginInstallRefreshTimer);
-      window.__codexForcePluginInstallRefreshTimer = null;
-      return;
-    }
-    if (window.__codexForcePluginInstallRefreshTimer) return;
-    window.__codexForcePluginInstallRefreshTimer = setInterval(() => {
-      if (!codexPlusSettings().forcePluginInstall || pluginPatchDisabledInRelayMode()) {
-        clearInterval(window.__codexForcePluginInstallRefreshTimer);
-        window.__codexForcePluginInstallRefreshTimer = null;
-        return;
-      }
-      unblockPluginInstallButtons();
-    }, codexForcePluginInstallRefreshIntervalMs);
   }
 
   let cachedSessionRows = [];
@@ -4503,7 +4371,7 @@
 
   async function postJson(path, payload) {
     if (!window.__codexSessionDeleteBridge) {
-      if (path === "/backend/status" || path === "/backend/repair") {
+      if (path === "/backend/status") {
         try {
           const response = await fetch(`${helperBase}${path}`, {
             method: "POST",
@@ -4537,7 +4405,7 @@
       }
     }
     try {
-      if (path === "/backend/status" || path === "/backend/repair") {
+      if (path === "/backend/status") {
         const result = await bridgeWithBackendTimeout(path, payload);
         if (result?.status === "ok") return result;
         if (result?.timeout) sendCodexPlusDiagnostic("backend_bridge_timeout", { path });
@@ -4564,7 +4432,7 @@
         errorName: error?.name || "",
         errorMessage: error?.message || String(error),
       });
-      if (path === "/backend/status" || path === "/backend/repair") {
+      if (path === "/backend/status") {
         const fallback = await fetchBackendStatusFromHelper(path, payload);
         if (fallback?.status === "ok") {
           sendCodexPlusDiagnostic("backend_status_bridge_failed_http_fallback_ok", {
@@ -4634,7 +4502,7 @@
   let chatsSortLastFetchAt = 0;
 
   async function codexStateApi() {
-    codexStateApiPromise = codexStateApiPromise || import("./assets/vscode-api-Dc9pX2Bc.js");
+    codexStateApiPromise = codexStateApiPromise || loadCodexAppModule("vscode-api-");
     const api = await codexStateApiPromise;
     if (typeof api.n !== "function") throw new Error("Codex 状态 API 不可用");
     return api.n;
@@ -5958,10 +5826,34 @@
     }
   }
 
+  async function clearThreadWritableRoots(ref) {
+    const variants = threadIdVariants(ref.session_id);
+    if (variants.length === 0) return;
+    const roots = objectGlobalState(await getCodexGlobalState("thread-writable-roots").catch(() => ({})));
+    const rootKeys = variants.filter((id) => Object.prototype.hasOwnProperty.call(roots, id));
+    if (rootKeys.length > 0) {
+      rootKeys.forEach((id) => delete roots[id]);
+      await setCodexGlobalState("thread-writable-roots", roots);
+    }
+  }
+
+  async function clearThreadProjectlessOutputDirectories(ref) {
+    const variants = threadIdVariants(ref.session_id);
+    if (variants.length === 0) return;
+    const dirs = objectGlobalState(await getCodexGlobalState("thread-projectless-output-directories").catch(() => ({})));
+    const dirKeys = variants.filter((id) => Object.prototype.hasOwnProperty.call(dirs, id));
+    if (dirKeys.length > 0) {
+      dirKeys.forEach((id) => delete dirs[id]);
+      await setCodexGlobalState("thread-projectless-output-directories", dirs);
+    }
+  }
+
   async function moveSessionToProjectless(ref) {
     if (!ref.session_id) throw new Error("未找到会话 ID");
     await setProjectlessThreadIds(ref, "add");
     await clearThreadWorkspaceHints(ref);
+    await clearThreadWritableRoots(ref);
+    await clearThreadProjectlessOutputDirectories(ref);
     const sortKey = await postJson("/thread-sort-key", ref).catch(() => ({}));
     return { status: "moved", session_id: ref.session_id, updated_at: sortKey?.updated_at, updated_at_ms: sortKey?.updated_at_ms, created_at_ms: sortKey?.created_at_ms };
   }
@@ -8699,7 +8591,6 @@
   function scanDeferred() {
     if (pluginPatchDisabledInRelayMode()) {
       clearPluginPatchArtifacts();
-      refreshForcePluginInstallUnlockLoop();
     } else {
       const pluginUnlockStrategy = codexPluginUnlockStrategy();
       const settings = codexPlusSettings();
@@ -8717,8 +8608,6 @@
           installPluginMarketplaceRequestPatch();
         }
       }
-      unblockPluginInstallButtons();
-      refreshForcePluginInstallUnlockLoop();
     }
     refreshThreadIdBadges();
     sessionRows().forEach(tryAttachButton);
