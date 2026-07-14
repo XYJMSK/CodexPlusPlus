@@ -25,7 +25,6 @@ import {
   Copy,
   Download,
   Edit3,
-  Gauge,
   GripVertical,
   Info,
   ExternalLink,
@@ -46,6 +45,7 @@ import {
   Settings,
   ShieldCheck,
   ShieldAlert,
+  Star,
   Stethoscope,
   Sun,
   TestTube,
@@ -63,6 +63,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { isGitHubRepositoryHomepage } from "./github-repository";
 import {
   mergeModelWindowRows,
   modelWindowRowsFromProfile,
@@ -457,11 +458,6 @@ type EnvConflict = {
 
 type EnvConflictsResult = CommandResult<{
   conflicts: EnvConflict[];
-}>;
-
-type RelayLatencyResult = CommandResult<{
-  latencyMs: number | null;
-  httpStatus: number | null;
 }>;
 
 type RelayEnvironmentResult = CommandResult<{
@@ -1668,10 +1664,6 @@ export function App() {
     if (result) showNotice(t("供应商测试"), result.message, result.status);
   };
 
-  const measureRelayLatency = async (url: string) => {
-    return await run(() => call<RelayLatencyResult>("measure_relay_latency", { url }));
-  };
-
   const diagnoseRelayProfile = async (profile: RelayProfile) => {
     const result = await run(() => call<ProviderDoctorResult>("diagnose_relay_profile", { profile }));
     if (result) showNotice("Provider Doctor", result.message, result.status);
@@ -2028,7 +2020,6 @@ export function App() {
       deleteContextEntry,
       extractRelayCommonConfig,
       testRelayProfile,
-      measureRelayLatency,
       diagnoseRelayProfile,
       testStepwiseSettings,
       fetchRelayProfileModels,
@@ -2062,7 +2053,6 @@ export function App() {
     <div className={`shell ${theme}`}>
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">C++</div>
           <div className="brand-copy">
             <div className="brand-title-row">
               <div className="brand-title">Codex++</div>
@@ -2311,7 +2301,6 @@ type Actions = {
   deleteContextEntry: (settings: BackendSettings, kind: ContextKind, id: string) => Promise<BackendSettings | null>;
   extractRelayCommonConfig: (configContents: string) => Promise<ExtractRelayCommonConfigResult | null>;
   testRelayProfile: (profile: RelayProfile) => Promise<void>;
-  measureRelayLatency: (url: string) => Promise<RelayLatencyResult | null>;
   diagnoseRelayProfile: (profile: RelayProfile) => Promise<ProviderDoctorResult | null>;
   testStepwiseSettings: (settings: BackendSettings) => Promise<void>;
   fetchRelayProfileModels: (profile: RelayProfile) => Promise<string[] | null>;
@@ -2613,6 +2602,7 @@ function RelayScreen({
               <strong>{t("启用供应商配置切换")}</strong>
               <small>{t("关闭后本工具不会在手动切换时写入 Codex 的 config.toml / auth.json；启动 Codex 时始终不会自动改这些文件。")}</small>
             </span>
+            <ToggleVisual />
           </label>
           <div className="relay-add-row">
             <Button
@@ -2760,7 +2750,7 @@ function EnhanceScreen({
     : t("未发现本地缓存；点击按钮会从 Codex++ 内置快照释放并注册，无需官方账号预缓存。");
   return (
     <>
-      <Panel>
+      <Panel className="enhance-panel">
         <CardHead title={t("Codex增强")} detail={t("会话删除、导出、项目移动和用户脚本等界面能力")} />
         <CardContent>
           <label className="switch-row">
@@ -2773,6 +2763,7 @@ function EnhanceScreen({
               <strong>{t("启用 Codex增强")}</strong>
               <small>{t("关闭后会停用删除、导出、项目移动、插件相关和菜单位置增强。")}</small>
             </span>
+            <ToggleVisual />
           </label>
           <label className="switch-row">
             <input
@@ -2784,6 +2775,7 @@ function EnhanceScreen({
               <strong>{t("启用 Windows Computer Use Guard")}</strong>
               <small>{t("默认关闭；开启后启动 Codex 时会自动保留官方 Computer Use 插件所需的 config.toml、bundled 插件和 notify 配置。")}</small>
             </span>
+            <ToggleVisual />
           </label>
           <ModeSelector launchMode={form.launchMode} actions={actions} />
           {form.launchMode === "relay" ? (
@@ -2944,6 +2936,7 @@ function ZedRemoteScreen({
                 <strong>{t("记录最近打开")}</strong>
                 <small>{t("保存到 Codex++ state，不改写 Zed settings。")}</small>
               </span>
+              <ToggleVisual />
             </label>
           </div>
           <Toolbar>
@@ -3221,6 +3214,7 @@ function SessionsScreen({
               <strong>{t("启动前自动修复历史会话")}</strong>
               <small>{t("开启后，通过 Codex++ 启动 Codex 前自动整理一次旧对话的归属标记。")}</small>
             </span>
+            <ToggleVisual />
           </label>
           <Toolbar>
             <Button onClick={() => void actions.saveSettings()}>{t("保存自动修复设置")}</Button>
@@ -3840,50 +3834,10 @@ function SortableRelayProfileCard({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: profile.id });
   const active = profile.id === form.activeRelayId;
-  const latencyTarget = relayProfileLatencyTarget(profile);
-  const [latency, setLatency] = useState<{ status: "idle" | "loading" | "ok" | "failed"; latencyMs: number | null }>({
-    status: latencyTarget ? "loading" : "idle",
-    latencyMs: null,
-  });
   const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
   };
-  const refreshLatency = async () => {
-    if (!latencyTarget) {
-      setLatency({ status: "idle", latencyMs: null });
-      return;
-    }
-    setLatency({ status: "loading", latencyMs: null });
-    const result = await actions.measureRelayLatency(latencyTarget);
-    setLatency(
-      result && isSuccessStatus(result.status) && result.latencyMs !== null
-        ? { status: "ok", latencyMs: result.latencyMs }
-        : { status: "failed", latencyMs: null },
-    );
-  };
-
-  useEffect(() => {
-    let active = true;
-    if (!latencyTarget) {
-      setLatency({ status: "idle", latencyMs: null });
-      return () => {
-        active = false;
-      };
-    }
-    setLatency({ status: "loading", latencyMs: null });
-    void actions.measureRelayLatency(latencyTarget).then((result) => {
-      if (!active) return;
-      setLatency(
-        result && isSuccessStatus(result.status) && result.latencyMs !== null
-          ? { status: "ok", latencyMs: result.latencyMs }
-          : { status: "failed", latencyMs: null },
-      );
-    });
-    return () => {
-      active = false;
-    };
-  }, [latencyTarget]);
 
   return (
     <div
@@ -3914,27 +3868,6 @@ function SortableRelayProfileCard({
         <strong>{profile.name || t("未命名供应商")}</strong>
         <small>{relayModeLabel(profile.relayMode)} · {relayProtocolLabel(profile.protocol)} · {relayProfileConfigBrief(profile)}</small>
       </span>
-      <button
-        className={`relay-latency ${latency.status}`}
-        disabled={!latencyTarget || latency.status === "loading"}
-        onClick={(event) => {
-          event.stopPropagation();
-          void refreshLatency();
-        }}
-        title={latencyTarget ? t("重新检测延迟") : t("此供应商没有单一目标 URL")}
-        type="button"
-      >
-        <Gauge className="h-4 w-4" />
-        <span>
-          {latency.status === "loading"
-            ? "..."
-            : latency.status === "ok" && latency.latencyMs !== null
-              ? tf("{0} ms", [latency.latencyMs])
-              : latency.status === "failed"
-                ? t("不可用")
-                : "--"}
-        </span>
-      </button>
       <span className="relay-card-actions">
         <Button
           className={`relay-use-button ${active ? "active" : ""}`}
@@ -4009,6 +3942,8 @@ function SortableRelayProfileCard({
 
 function MarketScriptCard({ script, actions }: { script: ScriptMarketItem; actions: Actions }) {
   const status = script.updateAvailable ? t("可更新") : script.installed ? tf("已安装 {0}", [script.installedVersion]) : t("未安装");
+  const isGitHubHomepage = script.homepage ? isGitHubRepositoryHomepage(script.homepage) : false;
+  const githubSupportLabel = isGitHubHomepage ? tf("在 GitHub 上支持作者：{0}", [script.name]) : undefined;
   return (
     <div className="script-market-card">
       <div className="script-market-title">
@@ -4031,9 +3966,25 @@ function MarketScriptCard({ script, actions }: { script: ScriptMarketItem; actio
           {script.updateAvailable ? t("更新") : script.installed ? t("重新安装") : t("安装")}
         </Button>
         {script.homepage ? (
-          <Button onClick={() => void actions.openExternalUrl(script.homepage)} size="sm" variant="secondary">
-            <ExternalLink className="h-4 w-4" />
-            {t("主页")}
+          <Button
+            aria-label={githubSupportLabel}
+            onClick={() => void actions.openExternalUrl(script.homepage)}
+            size="sm"
+            title={githubSupportLabel}
+            variant="secondary"
+          >
+            {isGitHubHomepage ? (
+              <>
+                <Star className="h-4 w-4" />
+                Star
+                <ExternalLink className="h-3 w-3" />
+              </>
+            ) : (
+              <>
+                <ExternalLink className="h-4 w-4" />
+                {t("主页")}
+              </>
+            )}
           </Button>
         ) : null}
       </div>
@@ -4422,7 +4373,7 @@ function RelayProfileEditor({
                 <span />
               </div>
               {modelWindowRows.map((row, index) => (
-                <div className="relay-model-row" key={`${index}-${row.model}`}>
+                <div className="relay-model-row" key={index}>
                   <Input
                     value={row.model}
                     onChange={(event) => updateModelWindowRow(index, { model: event.currentTarget.value })}
@@ -5165,8 +5116,16 @@ function FeatureToggle({
         <strong>{title}</strong>
         <small>{detail}</small>
       </span>
-      <Badge status={!disabled && checked ? "ok" : "disabled"} />
+      <ToggleVisual />
     </label>
+  );
+}
+
+function ToggleVisual() {
+  return (
+    <span aria-hidden="true" className="toggle-switch-visual">
+      <span className="toggle-switch-thumb" />
+    </span>
   );
 }
 
@@ -6360,15 +6319,6 @@ function relayProfileConfigBrief(profile: RelayProfile): string {
   }
   if (profile.relayMode === "official") return profile.officialMixApiKey ? t("混入 API Key") : t("不写 API 文件");
   return profile.baseUrl || t("未填写 URL");
-}
-
-function relayProfileLatencyTarget(profile: RelayProfile): string {
-  if (isAggregateRelayProfile(profile)) return "";
-  if (profile.relayMode === "official" && !profile.officialMixApiKey) return "";
-  if (profile.protocol === "chatCompletions") {
-    return (profile.upstreamBaseUrl || profile.baseUrl).trim();
-  }
-  return profile.baseUrl.trim();
 }
 
 function relayProfileModeHelp(profile: RelayProfile): string {

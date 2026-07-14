@@ -656,9 +656,6 @@ export const EN_PLAIN: Record<string, string> = {
   "检测到需要处理的环境问题": "Environment issues need attention",
   "正在读取本机环境": "Reading the local environment",
   "重新检测": "Check again",
-  "重新检测延迟": "Check latency again",
-  "此供应商没有单一目标 URL": "This provider has no single target URL",
-  "不可用": "Unavailable",
   "排查可能干扰中转站配置的本机环境": "Find local environment settings that may interfere with relay configuration",
 };
 
@@ -666,7 +663,6 @@ export const EN_PLAIN: Record<string, string> = {
 export const EN_TEMPLATE: Record<string, string> = {
   "\n...以及另外 {0} 个会话": "\n...and {0} more session(s)",
   "{0}（{1}）": "{0} ({1})",
-  "{0} ms": "{0} ms",
   "{0} · {1} 个成员": "{0} · {1} member(s)",
   "{0} 个": "{0}",
   "{0} 个 Codex++ 可识别项目，默认策略：{1}": "{0} project(s) recognized by Codex++, default strategy: {1}",
@@ -687,6 +683,7 @@ export const EN_TEMPLATE: Record<string, string> = {
     "Delete the {0} selected session(s)? This deletes the local database records and rollout files, and creates a backup for each session.\n\n{1}{2}",
   "发现 {0} 个 Codex 供应商": "Found {0} Codex provider(s)",
   "发现新版本 {0}": "New version {0} available",
+  "在 GitHub 上支持作者：{0}": "Support the author on GitHub: {0}",
   "检测到 TUN 模式已开启，请在 Clash Verge Rev 中关闭。配置：{0}":
     "TUN mode is enabled. Disable it in Clash Verge Rev. Configuration: {0}",
   "TUN 模式已关闭。配置：{0}": "TUN mode is disabled. Configuration: {0}",
